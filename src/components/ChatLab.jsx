@@ -15,46 +15,43 @@ function removeCjkIdeographs(text) {
     .trimStart();
 }
 
-function detectStyleRequest(text, currentStyle) {
+function detectConversationInstruction(text, currentInstruction) {
   const value = String(text ?? "").replace(/\s+/g, " ").trim();
-  if (!value) return currentStyle;
+  if (!value) return currentInstruction;
 
-  const requestsNormal = /(평범한|일반적인|보통|기본)\s*(말투|말투로|답변)|냥체\s*(그만|중지|해제)|원래\s*말투/.test(value);
-  if (requestsNormal) return "normal";
+  const resetRequested =
+    /(평범한|일반적인|보통|기본|원래)\s*(말투|방식|스타일)|말투\s*(그만|중지|해제)|설정\s*(취소|해제)|원래대로/.test(value);
+  if (resetRequested) return "";
 
-  const requestsNyang = /(냥체|고양이\s*말투).*(써|사용|말해|답해|해줘)|앞으로.*냥/.test(value);
-  if (requestsNyang) return "nyang";
+  const looksLikeStyleRequest =
+    /(말투|어조|문장\s*끝|답변\s*끝|존댓말|반말|형식|스타일|붙여서|붙여\s*줘)/.test(value) &&
+    /(말해|답해|답변해|써|작성해|사용해|해줘|해\s*줘)/.test(value);
+  const explicitlyTemporary =
+    /(이번\s*대화|앞으로|이제부터|계속)/.test(value) &&
+    /(말해|답해|답변해|써|작성해|사용해|해줘|해\s*줘)/.test(value);
 
-  return currentStyle;
+  return looksLikeStyleRequest || explicitlyTemporary ? value : currentInstruction;
 }
 
-function styleInstruction(style) {
-  if (style === "nyang") {
-    return [
-      "현재 대화에서 사용자가 요청한 임시 말투는 냥체다.",
-      "문장 끝을 자연스럽게 '냥', '다냥', '해보자냥'처럼 바꾸되 모든 문장에 억지로 붙이지 않는다.",
-      "정보의 정확성과 읽기 쉬운 문장 구조를 유지한다.",
-      "사용자가 일반 말투나 평범한 말투로 돌아가라고 하면 즉시 냥체를 중단한다.",
-    ].join("\n");
-  }
-  return "현재 대화의 임시 말투는 기본 상태다. 자연스럽고 평범한 한국어 존댓말로 답한다.";
-}
-
-function buildCustomInstructionBlock(custom, conversationStyle) {
-  if (!custom?.enabled) return styleInstruction(conversationStyle);
+function buildCustomInstructionBlock(custom, conversationInstruction) {
   const lines = [
     "[사용자 맞춤 설정]",
-    custom.aboutUser ? `사용자 정보: ${custom.aboutUser}` : "사용자 정보: 별도 입력 없음",
-    custom.responsePreferences
+    custom?.aboutUser ? `사용자 정보: ${custom.aboutUser}` : "사용자 정보: 별도 입력 없음",
+    custom?.responsePreferences
       ? `평소 응답 선호: ${custom.responsePreferences}`
       : "평소 응답 선호: 자연스럽고 평범한 한국어 존댓말",
-    custom.avoid ? `피해야 할 표현: ${custom.avoid}` : "피해야 할 표현: 없음",
+    custom?.avoid ? `피해야 할 표현과 행동: ${custom.avoid}` : "피해야 할 표현과 행동: 없음",
     "한자 및 중국어 문자를 답변에 섞지 않는다. 필요한 용어는 한글 또는 영어로 쓴다.",
-    custom.allowConversationStyleOverrides
-      ? "대화 중 사용자가 요청한 말투와 형식은 맞춤 설정보다 우선하며, 사용자가 취소하면 기본 말투로 돌아간다."
-      : "대화 중 임시 말투 요청보다 저장된 응답 선호를 우선한다.",
-    styleInstruction(conversationStyle),
   ];
+
+  if (custom?.allowConversationStyleOverrides !== false && conversationInstruction) {
+    lines.push(
+      `현재 대화에서 사용자가 요청한 임시 응답 방식: ${conversationInstruction}`,
+      "이 요청은 현재 대화에서만 유지한다. 사용자가 취소하거나 기본 방식으로 돌아가라고 하면 즉시 해제한다.",
+    );
+  } else {
+    lines.push("현재 대화에 별도로 적용할 임시 응답 방식은 없다.");
+  }
   return lines.join("\n");
 }
 
@@ -72,14 +69,15 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [correction, setCorrection] = useState(null);
-  const [conversationStyle, setConversationStyle] = useState("normal");
+  const [conversationInstruction, setConversationInstruction] = useState("");
   const textareaRef = useRef(null);
   const messageEndRef = useRef(null);
 
   const settings = state.settings;
   const customInstructions = settings.customInstructions ?? {};
+
   const personalizedPreview = useMemo(() => {
-    const detectedStyle = detectStyleRequest(input, conversationStyle);
+    const detectedInstruction = detectConversationInstruction(input, conversationInstruction);
     const base = settings.personalization
       ? buildPersonalizedSystem(
           settings.systemPrompt,
@@ -88,19 +86,22 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
           state.preferences,
         )
       : settings.systemPrompt;
-    return `${base}\n\n${buildCustomInstructionBlock(customInstructions, detectedStyle)}`;
+    return `${base}\n\n${buildCustomInstructionBlock(customInstructions, detectedInstruction)}`;
   }, [
     settings.systemPrompt,
     settings.personalization,
     customInstructions,
     input,
-    conversationStyle,
+    conversationInstruction,
     state.sftExamples,
     state.preferences,
   ]);
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: generating ? "auto" : "smooth", block: "end" });
+    messageEndRef.current?.scrollIntoView({
+      behavior: generating ? "auto" : "smooth",
+      block: "end",
+    });
   }, [messages, generating]);
 
   function updateSettings(patch) {
@@ -132,10 +133,11 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
       return;
     }
 
-    const nextStyle = customInstructions.allowConversationStyleOverrides === false
-      ? "normal"
-      : detectStyleRequest(prompt, conversationStyle);
-    setConversationStyle(nextStyle);
+    const nextInstruction =
+      customInstructions.allowConversationStyleOverrides === false
+        ? ""
+        : detectConversationInstruction(prompt, conversationInstruction);
+    setConversationInstruction(nextInstruction);
     setError("");
     setInput("");
 
@@ -150,7 +152,10 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
           state.preferences,
         )
       : settings.systemPrompt;
-    const systemContent = `${baseSystem}\n\n${buildCustomInstructionBlock(customInstructions, nextStyle)}`;
+    const systemContent = `${baseSystem}\n\n${buildCustomInstructionBlock(
+      customInstructions,
+      nextInstruction,
+    )}`;
 
     const apiMessages = [
       { role: "system", content: systemContent },
@@ -172,9 +177,10 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
         topP: settings.topP,
         maxTokens: settings.maxTokens,
         onToken: (fullText) => {
-          const displayed = customInstructions.blockCjkIdeographs === false
-            ? fullText
-            : removeCjkIdeographs(fullText);
+          const displayed =
+            customInstructions.blockCjkIdeographs === false
+              ? fullText
+              : removeCjkIdeographs(fullText);
           setMessages((previous) =>
             previous.map((item) =>
               item.id === assistantId ? { ...item, content: displayed } : item,
@@ -182,9 +188,10 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
           );
         },
       });
-      const finalText = customInstructions.blockCjkIdeographs === false
-        ? result.text
-        : removeCjkIdeographs(result.text);
+      const finalText =
+        customInstructions.blockCjkIdeographs === false
+          ? result.text
+          : removeCjkIdeographs(result.text);
       setMessages((previous) =>
         previous.map((item) =>
           item.id === assistantId
@@ -196,7 +203,6 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
                   tokens: result.completionTokens,
                   speed: result.tokensPerSecond,
                   personalized: settings.personalization,
-                  style: nextStyle,
                 },
               }
             : item,
@@ -221,12 +227,12 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
   }
 
   function clearConversation() {
-    setConversationStyle("normal");
+    setConversationInstruction("");
     setMessages([
       {
         id: "welcome",
         role: "assistant",
-        content: "대화가 초기화되었습니다. 임시 말투도 기본 상태로 돌아갔습니다.",
+        content: "대화가 초기화되었습니다. 현재 대화에만 적용되던 설정도 초기화되었습니다.",
       },
     ]);
   }
@@ -234,7 +240,9 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
   function saveAsSft(messageId) {
     const index = messages.findIndex((message) => message.id === messageId);
     const assistant = messages[index];
-    const user = [...messages.slice(0, index)].reverse().find((message) => message.role === "user");
+    const user = [...messages.slice(0, index)]
+      .reverse()
+      .find((message) => message.role === "user");
     if (!assistant || !user) return;
     setState((previous) => ({
       ...previous,
@@ -256,7 +264,9 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
   function saveCorrection() {
     const index = messages.findIndex((message) => message.id === correction.messageId);
     const rejected = messages[index];
-    const user = [...messages.slice(0, index)].reverse().find((message) => message.role === "user");
+    const user = [...messages.slice(0, index)]
+      .reverse()
+      .find((message) => message.role === "user");
     const chosen = correction.text.trim();
     if (!chosen || !rejected || !user) return;
     setState((previous) => ({
@@ -292,9 +302,9 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
               <span className={`personalization-label ${customInstructions.enabled ? "on" : ""}`}>
                 맞춤 설정 {customInstructions.enabled ? "ON" : "OFF"}
               </span>
-              <span className={`personalization-label ${conversationStyle === "nyang" ? "on" : ""}`}>
-                현재 말투 {conversationStyle === "nyang" ? "냥체" : "기본"}
-              </span>
+              {conversationInstruction ? (
+                <span className="personalization-label on">대화별 설정 적용 중</span>
+              ) : null}
               <button className="text-button" onClick={clearConversation}>대화 지우기</button>
             </div>
           </div>
@@ -335,12 +345,12 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
                   sendMessage();
                 }
               }}
-              placeholder="AI에게 질문하거나 이번 대화의 말투를 요청하세요..."
+              placeholder="AI에게 질문하거나 현재 대화에 적용할 답변 방식을 요청하세요..."
               rows={3}
               disabled={generating}
             />
             <div className="composer-footer">
-              <span>Enter 전송 · Shift+Enter 줄바꿈 · 말투 요청은 현재 대화에만 적용</span>
+              <span>Enter 전송 · Shift+Enter 줄바꿈 · 대화 중 요청은 현재 대화에만 적용</span>
               {generating ? (
                 <Button type="button" variant="danger" icon="stop" onClick={stop}>중지</Button>
               ) : (
@@ -350,113 +360,54 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
           </form>
         </Card>
 
-        <aside className="settings-panel">
-          <Card>
-            <div className="section-heading compact">
-              <div>
-                <span className="eyebrow">CUSTOM INSTRUCTIONS</span>
-                <h3>개인 맞춤 설정</h3>
-              </div>
-            </div>
-            <label className="switch-row">
-              <div><strong>맞춤 설정 사용</strong><small>브라우저에 저장되어 다음 방문에도 유지</small></div>
-              <input
-                type="checkbox"
-                checked={customInstructions.enabled !== false}
-                onChange={(event) => updateCustomInstructions({ enabled: event.target.checked })}
-              />
-            </label>
-            <label className="field">
-              <span>AI가 알아야 할 사용자 정보</span>
-              <textarea
-                rows={4}
-                value={customInstructions.aboutUser ?? ""}
-                onChange={(event) => updateCustomInstructions({ aboutUser: event.target.value })}
-                placeholder="관심 분야, 학년, 목표, 자주 하는 작업 등을 입력하세요."
-              />
-            </label>
-            <label className="field">
-              <span>평소 답변 방식</span>
-              <textarea
-                rows={4}
-                value={customInstructions.responsePreferences ?? ""}
-                onChange={(event) => updateCustomInstructions({ responsePreferences: event.target.value })}
-                placeholder="예: 평소에는 자연스러운 존댓말, 단계별 설명, 전체 코드 제공"
-              />
-            </label>
-            <label className="field">
-              <span>피해야 할 표현과 행동</span>
-              <textarea
-                rows={3}
-                value={customInstructions.avoid ?? ""}
-                onChange={(event) => updateCustomInstructions({ avoid: event.target.value })}
-                placeholder="예: 한자 사용 금지, 불필요한 반복 금지"
-              />
-            </label>
-            <label className="switch-row">
-              <div><strong>대화별 말투 요청 허용</strong><small>냥체 등은 요청한 대화에서만 적용</small></div>
-              <input
-                type="checkbox"
-                checked={customInstructions.allowConversationStyleOverrides !== false}
-                onChange={(event) => updateCustomInstructions({ allowConversationStyleOverrides: event.target.checked })}
-              />
-            </label>
-            <label className="switch-row">
-              <div><strong>한자·중국어 문자 차단</strong><small>생성 결과에서도 자동 제거</small></div>
-              <input
-                type="checkbox"
-                checked={customInstructions.blockCjkIdeographs !== false}
-                onChange={(event) => updateCustomInstructions({ blockCjkIdeographs: event.target.checked })}
-              />
-            </label>
-          </Card>
-
-          <Card>
-            <div className="section-heading compact">
-              <div>
-                <span className="eyebrow">SYSTEM</span>
-                <h3>AI 역할 설정</h3>
-              </div>
-            </div>
-            <label className="field">
-              <span>시스템 프롬프트</span>
-              <textarea
-                rows={6}
-                value={settings.systemPrompt}
-                onChange={(event) => updateSettings({ systemPrompt: event.target.value })}
-              />
-            </label>
-            <label className="switch-row">
-              <div><strong>데이터 기반 개인화</strong><small>관련 SFT 예시와 선호 기록을 문맥에 추가</small></div>
-              <input
-                type="checkbox"
-                checked={settings.personalization}
-                onChange={(event) => updateSettings({ personalization: event.target.checked })}
-              />
-            </label>
-          </Card>
-
-          <Card>
-            <div className="section-heading compact">
-              <div>
-                <span className="eyebrow">GENERATION</span>
-                <h3>생성 파라미터</h3>
-              </div>
-            </div>
+        <aside className="settings-panel compact-settings-panel">
+          <AccordionCard eyebrow="GENERATION" title="생성 파라미터" defaultOpen>
             <RangeField label="Temperature" value={settings.temperature} min={0.1} max={1.5} step={0.1} description="낮을수록 일관적, 높을수록 다양" onChange={(value) => updateSettings({ temperature: value })} />
             <RangeField label="Top-p" value={settings.topP} min={0.1} max={1} step={0.05} description="선택 후보 토큰의 누적 확률 범위" onChange={(value) => updateSettings({ topP: value })} />
             <RangeField label="최대 출력 토큰" value={settings.maxTokens} min={64} max={768} step={32} description="답변 최대 길이" onChange={(value) => updateSettings({ maxTokens: value })} />
-          </Card>
+          </AccordionCard>
 
-          <Card className="prompt-preview-card">
-            <div className="section-heading compact">
-              <div>
-                <span className="eyebrow">CONTEXT PREVIEW</span>
-                <h3>실제 적용 문맥</h3>
-              </div>
-            </div>
-            <pre>{personalizedPreview}</pre>
-          </Card>
+          <AccordionCard eyebrow="CUSTOM INSTRUCTIONS" title="개인 맞춤 설정">
+            <label className="switch-row">
+              <div><strong>맞춤 설정 사용</strong><small>브라우저에 저장되어 다음 방문에도 유지</small></div>
+              <input type="checkbox" checked={customInstructions.enabled !== false} onChange={(event) => updateCustomInstructions({ enabled: event.target.checked })} />
+            </label>
+            <label className="field">
+              <span>AI가 알아야 할 사용자 정보</span>
+              <textarea rows={4} value={customInstructions.aboutUser ?? ""} onChange={(event) => updateCustomInstructions({ aboutUser: event.target.value })} placeholder="관심 분야, 학년, 목표, 자주 하는 작업 등을 입력하세요." />
+            </label>
+            <label className="field">
+              <span>평소 답변 방식</span>
+              <textarea rows={4} value={customInstructions.responsePreferences ?? ""} onChange={(event) => updateCustomInstructions({ responsePreferences: event.target.value })} placeholder="예: 자연스러운 존댓말, 단계별 설명, 전체 코드 제공" />
+            </label>
+            <label className="field">
+              <span>피해야 할 표현과 행동</span>
+              <textarea rows={3} value={customInstructions.avoid ?? ""} onChange={(event) => updateCustomInstructions({ avoid: event.target.value })} placeholder="예: 한자 사용 금지, 불필요한 반복 금지" />
+            </label>
+            <label className="switch-row">
+              <div><strong>대화별 답변 방식 허용</strong><small>대화 중 요청한 형식은 해당 대화에서만 적용</small></div>
+              <input type="checkbox" checked={customInstructions.allowConversationStyleOverrides !== false} onChange={(event) => updateCustomInstructions({ allowConversationStyleOverrides: event.target.checked })} />
+            </label>
+            <label className="switch-row">
+              <div><strong>한자·중국어 문자 차단</strong><small>생성 결과에서도 자동 제거</small></div>
+              <input type="checkbox" checked={customInstructions.blockCjkIdeographs !== false} onChange={(event) => updateCustomInstructions({ blockCjkIdeographs: event.target.checked })} />
+            </label>
+          </AccordionCard>
+
+          <AccordionCard eyebrow="SYSTEM" title="AI 역할 설정">
+            <label className="field">
+              <span>시스템 프롬프트</span>
+              <textarea rows={6} value={settings.systemPrompt} onChange={(event) => updateSettings({ systemPrompt: event.target.value })} />
+            </label>
+            <label className="switch-row">
+              <div><strong>데이터 기반 개인화</strong><small>관련 SFT 예시와 선호 기록을 문맥에 추가</small></div>
+              <input type="checkbox" checked={settings.personalization} onChange={(event) => updateSettings({ personalization: event.target.checked })} />
+            </label>
+          </AccordionCard>
+
+          <AccordionCard eyebrow="CONTEXT PREVIEW" title="실제 적용 문맥">
+            <div className="prompt-preview-card-inline"><pre>{personalizedPreview}</pre></div>
+          </AccordionCard>
         </aside>
       </div>
 
@@ -474,6 +425,19 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
   );
 }
 
+function AccordionCard({ eyebrow, title, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card className={`settings-accordion ${open ? "open" : "closed"}`}>
+      <button type="button" className="settings-accordion-trigger" onClick={() => setOpen((previous) => !previous)} aria-expanded={open}>
+        <div><span className="eyebrow">{eyebrow}</span><h3>{title}</h3></div>
+        <span className="settings-accordion-chevron" aria-hidden="true">⌄</span>
+      </button>
+      {open ? <div className="settings-accordion-content">{children}</div> : null}
+    </Card>
+  );
+}
+
 function Message({ message, modelName, onSave, onCorrect }) {
   const isAssistant = message.role === "assistant";
   return (
@@ -482,9 +446,7 @@ function Message({ message, modelName, onSave, onCorrect }) {
       <div className="message-body">
         <div className="message-header">
           <strong>{isAssistant ? modelName : "사용자"}</strong>
-          {message.meta ? (
-            <span>{message.meta.seconds.toFixed(1)}초 · {message.meta.tokens} tokens · {message.meta.speed.toFixed(1)} tok/s</span>
-          ) : null}
+          {message.meta ? <span>{message.meta.seconds.toFixed(1)}초 · {message.meta.tokens} tokens · {message.meta.speed.toFixed(1)} tok/s</span> : null}
         </div>
         <div className="message-content">{message.content || "생성 중..."}</div>
         {isAssistant && message.id !== "welcome" && message.content ? (
