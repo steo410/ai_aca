@@ -31,6 +31,14 @@ export const defaultState = {
     topP: 0.9,
     maxTokens: 320,
     personalization: true,
+    customInstructions: {
+      enabled: true,
+      aboutUser: "",
+      responsePreferences: "기본적으로 자연스럽고 평범한 한국어 존댓말로 답한다.",
+      avoid: "답변에 한자 또는 중국어 문자를 섞지 않는다.",
+      allowConversationStyleOverrides: true,
+      blockCjkIdeographs: true,
+    },
     modelSelection: {
       mode: "preset",
       presetKey: "medium",
@@ -52,6 +60,10 @@ function mergeState(saved) {
     settings: {
       ...defaultState.settings,
       ...(saved?.settings ?? {}),
+      customInstructions: {
+        ...defaultState.settings.customInstructions,
+        ...(saved?.settings?.customInstructions ?? {}),
+      },
       modelSelection: {
         ...defaultState.settings.modelSelection,
         ...(saved?.settings?.modelSelection ?? {}),
