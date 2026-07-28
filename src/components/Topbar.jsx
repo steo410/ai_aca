@@ -6,6 +6,7 @@ import { isWebGpuAvailable } from "../lib/localModel";
 const pageTitles = {
   dashboard: ["AI 연구 대시보드", "직접 실험하며 언어 모델의 원리를 익혀보세요."],
   chat: ["채팅 연구실", "생성 설정과 시스템 프롬프트가 답변을 어떻게 바꾸는지 확인합니다."],
+  vision: ["이미지 인식 연구실", "사진을 브라우저에서 직접 분류하고 AI의 확률 판단을 분석합니다."],
   dataset: ["데이터 공장", "좋은 질문과 답변, 선호 쌍을 만들어 학습 데이터를 축적합니다."],
   games: ["AI 게임 센터", "토큰·환각·프롬프트 개념을 게임으로 학습합니다."],
   arena: ["모델 경기장", "기본 모델과 개인화 모델을 블라인드 방식으로 비교합니다."],
@@ -21,7 +22,7 @@ export default function Topbar({
   onModelChange,
 }) {
   const [managerOpen, setManagerOpen] = useState(false);
-  const [title, subtitle] = pageTitles[activePage];
+  const [title, subtitle] = pageTitles[activePage] ?? pageTitles.dashboard;
   const webGpu = isWebGpuAvailable();
 
   async function saveModel(nextSelection) {
