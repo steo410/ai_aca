@@ -30,6 +30,10 @@ export default function App() {
     saveState(state);
   }, [state]);
 
+  function markTextModelUnloaded(text = "이미지 모델 사용을 위해 Qwen이 해제되었습니다.") {
+    setModelState({ status: "idle", progress: 0, text, error: "", loadedModelId: "" });
+  }
+
   async function handleLoadModel() {
     if (modelState.status === "loading") return;
     if (modelState.status === "ready" && modelState.loadedModelId === modelSelection.modelId) return;
@@ -42,29 +46,11 @@ export default function App() {
     });
     try {
       await loadLocalModel(modelSelection, (progress) => {
-        setModelState({
-          status: "loading",
-          progress: progress.progress,
-          text: progress.text,
-          error: "",
-          loadedModelId: "",
-        });
+        setModelState({ status: "loading", progress: progress.progress, text: progress.text, error: "", loadedModelId: "" });
       });
-      setModelState({
-        status: "ready",
-        progress: 1,
-        text: `${modelMeta.displayName} 준비 완료`,
-        error: "",
-        loadedModelId: modelSelection.modelId,
-      });
+      setModelState({ status: "ready", progress: 1, text: `${modelMeta.displayName} 준비 완료`, error: "", loadedModelId: modelSelection.modelId });
     } catch (error) {
-      setModelState({
-        status: "error",
-        progress: 0,
-        text: "모델을 불러오지 못했습니다.",
-        error: error?.message || String(error),
-        loadedModelId: "",
-      });
+      setModelState({ status: "error", progress: 0, text: "모델을 불러오지 못했습니다.", error: error?.message || String(error), loadedModelId: "" });
     }
   }
 
@@ -72,36 +58,20 @@ export default function App() {
     await unloadLocalModel();
     setState((previous) => ({
       ...previous,
-      settings: {
-        ...previous.settings,
-        modelSelection: normalizeModelSelection(nextSelection),
-      },
+      settings: { ...previous.settings, modelSelection: normalizeModelSelection(nextSelection) },
     }));
-    setModelState({
-      status: "idle",
-      progress: 0,
-      text: "새 모델을 불러와주세요.",
-      error: "",
-      loadedModelId: "",
-    });
+    setModelState({ status: "idle", progress: 0, text: "새 모델을 불러와주세요.", error: "", loadedModelId: "" });
   }
 
   let page = null;
-  const commonProps = {
-    state,
-    setState,
-    modelState,
-    modelSelection,
-    modelMeta,
-    onLoadModel: handleLoadModel,
-  };
+  const commonProps = { state, setState, modelState, modelSelection, modelMeta, onLoadModel: handleLoadModel };
 
   switch (activePage) {
     case "chat":
       page = <ChatLab {...commonProps} />;
       break;
     case "vision":
-      page = <ImageLab {...commonProps} />;
+      page = <ImageLab setState={setState} onTextModelUnloaded={markTextModelUnloaded} />;
       break;
     case "dataset":
       page = <DatasetLab state={state} setState={setState} />;
@@ -116,26 +86,12 @@ export default function App() {
       page = <TrainingLab {...commonProps} />;
       break;
     default:
-      page = (
-        <Dashboard
-          state={state}
-          modelState={modelState}
-          modelMeta={modelMeta}
-          onNavigate={setActivePage}
-          onLoadModel={handleLoadModel}
-        />
-      );
+      page = <Dashboard state={state} modelState={modelState} modelMeta={modelMeta} onNavigate={setActivePage} onLoadModel={handleLoadModel} />;
   }
 
   return (
     <div className="app-shell">
-      <Sidebar
-        activePage={activePage}
-        onChange={setActivePage}
-        modelState={modelState}
-        modelMeta={modelMeta}
-        xp={state.game.xp}
-      />
+      <Sidebar activePage={activePage} onChange={setActivePage} modelState={modelState} modelMeta={modelMeta} xp={state.game.xp} />
       <main className="main-shell">
         <Topbar
           activePage={activePage}
@@ -145,12 +101,7 @@ export default function App() {
           onLoadModel={handleLoadModel}
           onModelChange={handleModelChange}
         />
-        {modelState.error ? (
-          <div className="global-error">
-            <strong>모델 로드 오류</strong>
-            <span>{modelState.error}</span>
-          </div>
-        ) : null}
+        {modelState.error ? <div className="global-error"><strong>모델 로드 오류</strong><span>{modelState.error}</span></div> : null}
         {page}
       </main>
     </div>
