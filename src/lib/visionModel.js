@@ -1,136 +1,91 @@
-const MODEL_ID = "onnx-community/mobilenetv4_conv_small.e2400_r224_in1k";
+import { CreateWebWorkerMLCEngine } from "@mlc-ai/web-llm";
 
+export const VISION_MODEL_ID = "Phi-3.5-vision-instruct-q4f16_1-MLC";
+export const VISION_MODEL_NAME = "Phi-3.5 Vision";
+
+let engine = null;
 let worker = null;
-let sequence = 0;
-let loaded = false;
-let loadedDevice = "";
-const pending = new Map();
+let loadingPromise = null;
 
-function preferredDevice() {
-  return typeof navigator !== "undefined" && "gpu" in navigator ? "webgpu" : "wasm";
-}
-
-function ensureWorker() {
-  if (worker) return worker;
-
-  worker = new Worker(new URL("./visionWorker.js", import.meta.url), {
-    type: "module",
-  });
-
-  worker.onmessage = (event) => {
-    const message = event.data || {};
-    const request = pending.get(message.requestId);
-    if (!request) return;
-
-    if (message.type === "progress") {
-      request.onProgress?.(message);
-      return;
-    }
-
-    if (message.type === "ready") {
-      loaded = true;
-      loadedDevice = message.device || preferredDevice();
-      pending.delete(message.requestId);
-      request.resolve({ device: loadedDevice, modelId: MODEL_ID });
-      return;
-    }
-
-    if (message.type === "result") {
-      loaded = true;
-      loadedDevice = message.device || loadedDevice || preferredDevice();
-      pending.delete(message.requestId);
-      request.resolve({
-        results: message.results || [],
-        device: loadedDevice,
-        elapsedSeconds: Number(message.elapsedSeconds || 0),
-      });
-      return;
-    }
-
-    if (message.type === "disposed") {
-      pending.delete(message.requestId);
-      request.resolve();
-      return;
-    }
-
-    if (message.type === "error") {
-      pending.delete(message.requestId);
-      request.reject(new Error(message.message || "이미지 모델 실행 중 오류가 발생했습니다."));
-    }
-  };
-
-  worker.onerror = (event) => {
-    const error = new Error(event.message || "이미지 모델 워커에 오류가 발생했습니다.");
-    for (const request of pending.values()) request.reject(error);
-    pending.clear();
-    worker?.terminate();
-    worker = null;
-    loaded = false;
-    loadedDevice = "";
-  };
-
-  return worker;
-}
-
-function send(type, payload = {}, onProgress) {
-  const activeWorker = ensureWorker();
-  const requestId = `vision-${Date.now()}-${sequence += 1}`;
-
-  return new Promise((resolve, reject) => {
-    pending.set(requestId, { resolve, reject, onProgress });
-    const message = {
-      type,
-      requestId,
-      device: preferredDevice(),
-      ...payload,
-    };
-    const transfer = payload.buffer instanceof ArrayBuffer ? [payload.buffer] : [];
-    activeWorker.postMessage(message, transfer);
-  });
-}
-
-export function getVisionModelMeta() {
-  return {
-    modelId: MODEL_ID,
-    displayName: "MobileNetV4 Small",
-    classes: 1000,
-    inputSize: "224 × 224",
-    approximateDownload: "약 65MB",
-    loaded,
-    device: loadedDevice || preferredDevice(),
-  };
-}
-
-export function isVisionWebGpuAvailable() {
-  return preferredDevice() === "webgpu";
+export function isVisionReady() {
+  return Boolean(engine);
 }
 
 export async function loadVisionModel(onProgress = () => {}) {
-  if (loaded) return { device: loadedDevice, modelId: MODEL_ID };
-  return send("load", {}, onProgress);
-}
+  if (engine) return engine;
+  if (loadingPromise) return loadingPromise;
+  if (typeof navigator === "undefined" || !("gpu" in navigator)) {
+    throw new Error("이미지 채팅 모델은 WebGPU가 필요합니다. 최신 Chrome 또는 Edge를 사용해주세요.");
+  }
 
-export async function classifyImage(file, onProgress = () => {}) {
-  if (!(file instanceof Blob)) throw new Error("분석할 이미지 파일을 선택해주세요.");
-  const buffer = await file.arrayBuffer();
-  return send(
-    "classify",
+  worker = new Worker(new URL("./llmWorker.js", import.meta.url), { type: "module" });
+  loadingPromise = CreateWebWorkerMLCEngine(
+    worker,
+    VISION_MODEL_ID,
     {
-      buffer,
-      mimeType: file.type || "image/jpeg",
+      initProgressCallback: (report) =>
+        onProgress({
+          text: report.text ?? "이미지 모델을 준비하는 중입니다.",
+          progress: Number.isFinite(report.progress) ? report.progress : 0,
+        }),
     },
-    onProgress,
-  );
+    { context_window_size: 6144 },
+  )
+    .then((created) => {
+      engine = created;
+      loadingPromise = null;
+      return engine;
+    })
+    .catch((error) => {
+      worker?.terminate();
+      worker = null;
+      loadingPromise = null;
+      throw error;
+    });
+
+  return loadingPromise;
 }
 
 export async function unloadVisionModel() {
-  if (!worker) return;
-  try {
-    await send("dispose");
-  } finally {
-    worker?.terminate();
-    worker = null;
-    loaded = false;
-    loadedDevice = "";
+  if (engine) {
+    try {
+      await engine.unload();
+    } catch (error) {
+      console.warn("이미지 모델 해제 중 경고", error);
+    }
   }
+  worker?.terminate();
+  engine = null;
+  worker = null;
+  loadingPromise = null;
+}
+
+export async function interruptVisionGeneration() {
+  if (engine) await engine.interruptGenerate();
+}
+
+export async function streamVisionChat({ messages, maxTokens = 384, onToken }) {
+  if (!engine) throw new Error("먼저 이미지 채팅 모델을 불러와주세요.");
+  const startedAt = performance.now();
+  let output = "";
+  let usage = null;
+  const chunks = await engine.chat.completions.create({
+    messages,
+    temperature: 0.2,
+    top_p: 0.9,
+    max_tokens: maxTokens,
+    stream: true,
+    stream_options: { include_usage: true },
+  });
+  for await (const chunk of chunks) {
+    const delta = chunk.choices?.[0]?.delta?.content ?? "";
+    if (delta) {
+      output += delta;
+      onToken?.(output, delta);
+    }
+    if (chunk.usage) usage = chunk.usage;
+  }
+  const elapsedSeconds = Math.max(0.001, (performance.now() - startedAt) / 1000);
+  const completionTokens = usage?.completion_tokens ?? Math.max(1, Math.round(output.length / 2.5));
+  return { text: output, elapsedSeconds, completionTokens, tokensPerSecond: completionTokens / elapsedSeconds };
 }
