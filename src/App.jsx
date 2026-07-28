@@ -12,6 +12,8 @@ import { loadLocalModel, unloadLocalModel } from "./lib/localModel";
 import { getModelMeta, normalizeModelSelection } from "./lib/models";
 import { loadState, saveState } from "./lib/storage";
 
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 export default function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [state, setState] = useState(() => loadState());
@@ -37,21 +39,64 @@ export default function App() {
   async function handleLoadModel() {
     if (modelState.status === "loading") return;
     if (modelState.status === "ready" && modelState.loadedModelId === modelSelection.modelId) return;
+
+    const maxAttempts = 3;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      setModelState({
+        status: "loading",
+        progress: 0,
+        text:
+          attempt === 1
+            ? `${modelMeta.displayName} · 최초 로딩을 준비하는 중입니다. 잠시 기다려주세요.`
+            : `${modelMeta.displayName} · 자동 재시도 ${attempt}/${maxAttempts}`,
+        error: "",
+        loadedModelId: "",
+      });
+
+      try {
+        await loadLocalModel(modelSelection, (progress) => {
+          const percent = Math.max(0, Math.min(100, Math.round((progress.progress || 0) * 100)));
+          setModelState({
+            status: "loading",
+            progress: progress.progress,
+            text: `${progress.text || "모델을 준비하는 중입니다."} · ${percent}% · 창을 닫지 말고 기다려주세요.`,
+            error: "",
+            loadedModelId: "",
+          });
+        });
+        setModelState({
+          status: "ready",
+          progress: 1,
+          text: `${modelMeta.displayName} 준비 완료`,
+          error: "",
+          loadedModelId: modelSelection.modelId,
+        });
+        return;
+      } catch (error) {
+        lastError = error;
+        await unloadLocalModel();
+        if (attempt < maxAttempts) {
+          setModelState({
+            status: "loading",
+            progress: 0,
+            text: `연결이 잠시 끊겼습니다. ${4 * attempt}초 후 자동으로 다시 불러옵니다.`,
+            error: "",
+            loadedModelId: "",
+          });
+          await wait(4000 * attempt);
+        }
+      }
+    }
+
     setModelState({
-      status: "loading",
+      status: "error",
       progress: 0,
-      text: `${modelMeta.displayName} · WebGPU 확인 중`,
-      error: "",
+      text: "자동 재시도 후에도 모델을 불러오지 못했습니다.",
+      error: lastError?.message || String(lastError || "알 수 없는 모델 로딩 오류"),
       loadedModelId: "",
     });
-    try {
-      await loadLocalModel(modelSelection, (progress) => {
-        setModelState({ status: "loading", progress: progress.progress, text: progress.text, error: "", loadedModelId: "" });
-      });
-      setModelState({ status: "ready", progress: 1, text: `${modelMeta.displayName} 준비 완료`, error: "", loadedModelId: modelSelection.modelId });
-    } catch (error) {
-      setModelState({ status: "error", progress: 0, text: "모델을 불러오지 못했습니다.", error: error?.message || String(error), loadedModelId: "" });
-    }
   }
 
   async function handleModelChange(nextSelection) {
