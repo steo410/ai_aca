@@ -1,10 +1,61 @@
-import React, { useMemo, useRef, useState } from "react";
-import { Badge, Button, Card, Empty, Icon, Modal } from "./UI";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Badge, Button, Card, Icon, Modal } from "./UI";
 import { buildPersonalizedSystem } from "../lib/personalization";
 import { interruptGeneration, streamChat } from "../lib/localModel";
 
 function uid(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function removeCjkIdeographs(text) {
+  return String(text ?? "")
+    .replace(/[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ *\n */g, "\n")
+    .trimStart();
+}
+
+function detectStyleRequest(text, currentStyle) {
+  const value = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!value) return currentStyle;
+
+  const requestsNormal = /(평범한|일반적인|보통|기본)\s*(말투|말투로|답변)|냥체\s*(그만|중지|해제)|원래\s*말투/.test(value);
+  if (requestsNormal) return "normal";
+
+  const requestsNyang = /(냥체|고양이\s*말투).*(써|사용|말해|답해|해줘)|앞으로.*냥/.test(value);
+  if (requestsNyang) return "nyang";
+
+  return currentStyle;
+}
+
+function styleInstruction(style) {
+  if (style === "nyang") {
+    return [
+      "현재 대화에서 사용자가 요청한 임시 말투는 냥체다.",
+      "문장 끝을 자연스럽게 '냥', '다냥', '해보자냥'처럼 바꾸되 모든 문장에 억지로 붙이지 않는다.",
+      "정보의 정확성과 읽기 쉬운 문장 구조를 유지한다.",
+      "사용자가 일반 말투나 평범한 말투로 돌아가라고 하면 즉시 냥체를 중단한다.",
+    ].join("\n");
+  }
+  return "현재 대화의 임시 말투는 기본 상태다. 자연스럽고 평범한 한국어 존댓말로 답한다.";
+}
+
+function buildCustomInstructionBlock(custom, conversationStyle) {
+  if (!custom?.enabled) return styleInstruction(conversationStyle);
+  const lines = [
+    "[사용자 맞춤 설정]",
+    custom.aboutUser ? `사용자 정보: ${custom.aboutUser}` : "사용자 정보: 별도 입력 없음",
+    custom.responsePreferences
+      ? `평소 응답 선호: ${custom.responsePreferences}`
+      : "평소 응답 선호: 자연스럽고 평범한 한국어 존댓말",
+    custom.avoid ? `피해야 할 표현: ${custom.avoid}` : "피해야 할 표현: 없음",
+    "한자 및 중국어 문자를 답변에 섞지 않는다. 필요한 용어는 한글 또는 영어로 쓴다.",
+    custom.allowConversationStyleOverrides
+      ? "대화 중 사용자가 요청한 말투와 형식은 맞춤 설정보다 우선하며, 사용자가 취소하면 기본 말투로 돌아간다."
+      : "대화 중 임시 말투 요청보다 저장된 응답 선호를 우선한다.",
+    styleInstruction(conversationStyle),
+  ];
+  return lines.join("\n");
 }
 
 export default function ChatLab({ state, setState, modelState, modelMeta, onLoadModel }) {
@@ -13,7 +64,7 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
       id: "welcome",
       role: "assistant",
       content:
-        "안녕하세요. 이곳에서는 시스템 프롬프트와 생성 설정을 바꾸며 로컬 모델의 행동을 실험할 수 있습니다. 모델을 불러온 뒤 질문을 입력해보세요.",
+        "안녕하세요. 이곳에서는 로컬 모델의 답변 방식과 개인 맞춤 설정을 실험할 수 있습니다. 모델을 불러온 뒤 질문을 입력해보세요.",
       meta: null,
     },
   ]);
@@ -21,19 +72,36 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [correction, setCorrection] = useState(null);
+  const [conversationStyle, setConversationStyle] = useState("normal");
   const textareaRef = useRef(null);
+  const messageEndRef = useRef(null);
 
   const settings = state.settings;
-  const personalizedPreview = useMemo(
-    () =>
-      buildPersonalizedSystem(
-        settings.systemPrompt,
-        input || "일반 질문",
-        state.sftExamples,
-        state.preferences,
-      ),
-    [settings.systemPrompt, input, state.sftExamples, state.preferences],
-  );
+  const customInstructions = settings.customInstructions ?? {};
+  const personalizedPreview = useMemo(() => {
+    const detectedStyle = detectStyleRequest(input, conversationStyle);
+    const base = settings.personalization
+      ? buildPersonalizedSystem(
+          settings.systemPrompt,
+          input || "일반 질문",
+          state.sftExamples,
+          state.preferences,
+        )
+      : settings.systemPrompt;
+    return `${base}\n\n${buildCustomInstructionBlock(customInstructions, detectedStyle)}`;
+  }, [
+    settings.systemPrompt,
+    settings.personalization,
+    customInstructions,
+    input,
+    conversationStyle,
+    state.sftExamples,
+    state.preferences,
+  ]);
+
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: generating ? "auto" : "smooth", block: "end" });
+  }, [messages, generating]);
 
   function updateSettings(patch) {
     setState((previous) => ({
@@ -42,21 +110,39 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
     }));
   }
 
+  function updateCustomInstructions(patch) {
+    setState((previous) => ({
+      ...previous,
+      settings: {
+        ...previous.settings,
+        customInstructions: {
+          ...previous.settings.customInstructions,
+          ...patch,
+        },
+      },
+    }));
+  }
+
   async function sendMessage(event) {
     event?.preventDefault();
     const prompt = input.trim();
     if (!prompt || generating) return;
     if (modelState.status !== "ready") {
-      setError("먼저 상단의 ‘로컬 모델 불러오기’를 눌러주세요.");
+      setError("먼저 상단의 로컬 모델 불러오기를 눌러주세요.");
       return;
     }
 
+    const nextStyle = customInstructions.allowConversationStyleOverrides === false
+      ? "normal"
+      : detectStyleRequest(prompt, conversationStyle);
+    setConversationStyle(nextStyle);
     setError("");
     setInput("");
+
     const userMessage = { id: uid("user"), role: "user", content: prompt };
     const assistantId = uid("assistant");
     const visibleHistory = messages.filter((item) => item.id !== "welcome");
-    const systemContent = settings.personalization
+    const baseSystem = settings.personalization
       ? buildPersonalizedSystem(
           settings.systemPrompt,
           prompt,
@@ -64,10 +150,11 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
           state.preferences,
         )
       : settings.systemPrompt;
+    const systemContent = `${baseSystem}\n\n${buildCustomInstructionBlock(customInstructions, nextStyle)}`;
 
     const apiMessages = [
       { role: "system", content: systemContent },
-      ...visibleHistory.slice(-8).map(({ role, content }) => ({ role, content })),
+      ...visibleHistory.slice(-12).map(({ role, content }) => ({ role, content })),
       { role: "user", content: prompt },
     ];
 
@@ -85,24 +172,31 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
         topP: settings.topP,
         maxTokens: settings.maxTokens,
         onToken: (fullText) => {
+          const displayed = customInstructions.blockCjkIdeographs === false
+            ? fullText
+            : removeCjkIdeographs(fullText);
           setMessages((previous) =>
             previous.map((item) =>
-              item.id === assistantId ? { ...item, content: fullText } : item,
+              item.id === assistantId ? { ...item, content: displayed } : item,
             ),
           );
         },
       });
+      const finalText = customInstructions.blockCjkIdeographs === false
+        ? result.text
+        : removeCjkIdeographs(result.text);
       setMessages((previous) =>
         previous.map((item) =>
           item.id === assistantId
             ? {
                 ...item,
-                content: result.text,
+                content: finalText,
                 meta: {
                   seconds: result.elapsedSeconds,
                   tokens: result.completionTokens,
                   speed: result.tokensPerSecond,
                   personalized: settings.personalization,
+                  style: nextStyle,
                 },
               }
             : item,
@@ -124,6 +218,17 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
   async function stop() {
     await interruptGeneration();
     setGenerating(false);
+  }
+
+  function clearConversation() {
+    setConversationStyle("normal");
+    setMessages([
+      {
+        id: "welcome",
+        role: "assistant",
+        content: "대화가 초기화되었습니다. 임시 말투도 기본 상태로 돌아갔습니다.",
+      },
+    ]);
   }
 
   function saveAsSft(messageId) {
@@ -184,23 +289,13 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
               <strong>{modelMeta.displayName}</strong>
             </div>
             <div className="toolbar-actions">
-              <span className={`personalization-label ${settings.personalization ? "on" : ""}`}>
-                개인화 {settings.personalization ? "ON" : "OFF"}
+              <span className={`personalization-label ${customInstructions.enabled ? "on" : ""}`}>
+                맞춤 설정 {customInstructions.enabled ? "ON" : "OFF"}
               </span>
-              <button
-                className="text-button"
-                onClick={() =>
-                  setMessages([
-                    {
-                      id: "welcome",
-                      role: "assistant",
-                      content: "대화가 초기화되었습니다. 새로운 실험을 시작해보세요.",
-                    },
-                  ])
-                }
-              >
-                대화 지우기
-              </button>
+              <span className={`personalization-label ${conversationStyle === "nyang" ? "on" : ""}`}>
+                현재 말투 {conversationStyle === "nyang" ? "냥체" : "기본"}
+              </span>
+              <button className="text-button" onClick={clearConversation}>대화 지우기</button>
             </div>
           </div>
 
@@ -215,6 +310,7 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
               />
             ))}
             {generating ? <div className="typing-indicator"><i /><i /><i /></div> : null}
+            <div ref={messageEndRef} aria-hidden="true" />
           </div>
 
           {error ? <div className="inline-error">{error}</div> : null}
@@ -222,7 +318,7 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
             <div className="offline-callout">
               <div>
                 <strong>브라우저 로컬 모델이 아직 준비되지 않았습니다.</strong>
-                <p>최초 1회 모델 파일을 내려받은 뒤에는 브라우저 캐시에서 빠르게 실행됩니다.</p>
+                <p>최초 로딩은 모델 크기와 네트워크에 따라 오래 걸릴 수 있으며 자동으로 재시도합니다.</p>
               </div>
               <Button size="sm" icon="cpu" onClick={onLoadModel}>모델 불러오기</Button>
             </div>
@@ -239,12 +335,12 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
                   sendMessage();
                 }
               }}
-              placeholder="AI에게 질문하거나 실험할 프롬프트를 입력하세요..."
+              placeholder="AI에게 질문하거나 이번 대화의 말투를 요청하세요..."
               rows={3}
               disabled={generating}
             />
             <div className="composer-footer">
-              <span>Enter 전송 · Shift+Enter 줄바꿈</span>
+              <span>Enter 전송 · Shift+Enter 줄바꿈 · 말투 요청은 현재 대화에만 적용</span>
               {generating ? (
                 <Button type="button" variant="danger" icon="stop" onClick={stop}>중지</Button>
               ) : (
@@ -258,6 +354,66 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
           <Card>
             <div className="section-heading compact">
               <div>
+                <span className="eyebrow">CUSTOM INSTRUCTIONS</span>
+                <h3>개인 맞춤 설정</h3>
+              </div>
+            </div>
+            <label className="switch-row">
+              <div><strong>맞춤 설정 사용</strong><small>브라우저에 저장되어 다음 방문에도 유지</small></div>
+              <input
+                type="checkbox"
+                checked={customInstructions.enabled !== false}
+                onChange={(event) => updateCustomInstructions({ enabled: event.target.checked })}
+              />
+            </label>
+            <label className="field">
+              <span>AI가 알아야 할 사용자 정보</span>
+              <textarea
+                rows={4}
+                value={customInstructions.aboutUser ?? ""}
+                onChange={(event) => updateCustomInstructions({ aboutUser: event.target.value })}
+                placeholder="관심 분야, 학년, 목표, 자주 하는 작업 등을 입력하세요."
+              />
+            </label>
+            <label className="field">
+              <span>평소 답변 방식</span>
+              <textarea
+                rows={4}
+                value={customInstructions.responsePreferences ?? ""}
+                onChange={(event) => updateCustomInstructions({ responsePreferences: event.target.value })}
+                placeholder="예: 평소에는 자연스러운 존댓말, 단계별 설명, 전체 코드 제공"
+              />
+            </label>
+            <label className="field">
+              <span>피해야 할 표현과 행동</span>
+              <textarea
+                rows={3}
+                value={customInstructions.avoid ?? ""}
+                onChange={(event) => updateCustomInstructions({ avoid: event.target.value })}
+                placeholder="예: 한자 사용 금지, 불필요한 반복 금지"
+              />
+            </label>
+            <label className="switch-row">
+              <div><strong>대화별 말투 요청 허용</strong><small>냥체 등은 요청한 대화에서만 적용</small></div>
+              <input
+                type="checkbox"
+                checked={customInstructions.allowConversationStyleOverrides !== false}
+                onChange={(event) => updateCustomInstructions({ allowConversationStyleOverrides: event.target.checked })}
+              />
+            </label>
+            <label className="switch-row">
+              <div><strong>한자·중국어 문자 차단</strong><small>생성 결과에서도 자동 제거</small></div>
+              <input
+                type="checkbox"
+                checked={customInstructions.blockCjkIdeographs !== false}
+                onChange={(event) => updateCustomInstructions({ blockCjkIdeographs: event.target.checked })}
+              />
+            </label>
+          </Card>
+
+          <Card>
+            <div className="section-heading compact">
+              <div>
                 <span className="eyebrow">SYSTEM</span>
                 <h3>AI 역할 설정</h3>
               </div>
@@ -265,7 +421,7 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
             <label className="field">
               <span>시스템 프롬프트</span>
               <textarea
-                rows={7}
+                rows={6}
                 value={settings.systemPrompt}
                 onChange={(event) => updateSettings({ systemPrompt: event.target.value })}
               />
@@ -287,59 +443,27 @@ export default function ChatLab({ state, setState, modelState, modelMeta, onLoad
                 <h3>생성 파라미터</h3>
               </div>
             </div>
-            <RangeField
-              label="Temperature"
-              value={settings.temperature}
-              min={0.1}
-              max={1.5}
-              step={0.1}
-              description="낮을수록 일관적, 높을수록 다양"
-              onChange={(value) => updateSettings({ temperature: value })}
-            />
-            <RangeField
-              label="Top-p"
-              value={settings.topP}
-              min={0.1}
-              max={1}
-              step={0.05}
-              description="선택 후보 토큰의 누적 확률 범위"
-              onChange={(value) => updateSettings({ topP: value })}
-            />
-            <RangeField
-              label="최대 출력 토큰"
-              value={settings.maxTokens}
-              min={64}
-              max={768}
-              step={32}
-              description="답변 최대 길이"
-              onChange={(value) => updateSettings({ maxTokens: value })}
-            />
+            <RangeField label="Temperature" value={settings.temperature} min={0.1} max={1.5} step={0.1} description="낮을수록 일관적, 높을수록 다양" onChange={(value) => updateSettings({ temperature: value })} />
+            <RangeField label="Top-p" value={settings.topP} min={0.1} max={1} step={0.05} description="선택 후보 토큰의 누적 확률 범위" onChange={(value) => updateSettings({ topP: value })} />
+            <RangeField label="최대 출력 토큰" value={settings.maxTokens} min={64} max={768} step={32} description="답변 최대 길이" onChange={(value) => updateSettings({ maxTokens: value })} />
           </Card>
 
           <Card className="prompt-preview-card">
             <div className="section-heading compact">
               <div>
                 <span className="eyebrow">CONTEXT PREVIEW</span>
-                <h3>개인화 문맥 미리보기</h3>
+                <h3>실제 적용 문맥</h3>
               </div>
             </div>
-            <pre>{settings.personalization ? personalizedPreview : settings.systemPrompt}</pre>
+            <pre>{personalizedPreview}</pre>
           </Card>
         </aside>
       </div>
 
       {correction ? (
         <Modal title="더 좋은 답변으로 수정" onClose={() => setCorrection(null)}>
-          <p className="modal-description">
-            수정한 답변은 chosen, 기존 모델 답변은 rejected로 저장되어 선호 학습 데이터가 됩니다.
-          </p>
-          <textarea
-            className="modal-textarea"
-            rows={10}
-            value={correction.text}
-            onChange={(event) => setCorrection({ ...correction, text: event.target.value })}
-            placeholder="정확하고 더 좋은 답변을 입력하세요."
-          />
+          <p className="modal-description">수정한 답변은 chosen, 기존 모델 답변은 rejected로 저장되어 선호 학습 데이터가 됩니다.</p>
+          <textarea className="modal-textarea" rows={10} value={correction.text} onChange={(event) => setCorrection({ ...correction, text: event.target.value })} placeholder="정확하고 더 좋은 답변을 입력하세요." />
           <div className="modal-actions">
             <Button variant="ghost" onClick={() => setCorrection(null)}>취소</Button>
             <Button onClick={saveCorrection} disabled={!correction.text.trim()}>선호 데이터로 저장</Button>
@@ -359,9 +483,7 @@ function Message({ message, modelName, onSave, onCorrect }) {
         <div className="message-header">
           <strong>{isAssistant ? modelName : "사용자"}</strong>
           {message.meta ? (
-            <span>
-              {message.meta.seconds.toFixed(1)}초 · {message.meta.tokens} tokens · {message.meta.speed.toFixed(1)} tok/s
-            </span>
+            <span>{message.meta.seconds.toFixed(1)}초 · {message.meta.tokens} tokens · {message.meta.speed.toFixed(1)} tok/s</span>
           ) : null}
         </div>
         <div className="message-content">{message.content || "생성 중..."}</div>
@@ -380,14 +502,7 @@ function RangeField({ label, value, min, max, step, description, onChange }) {
   return (
     <label className="range-field">
       <div><span>{label}</span><strong>{value}</strong></div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
       <small>{description}</small>
     </label>
   );
