@@ -4,6 +4,7 @@ import { Icon } from "./UI";
 const pages = [
   ["dashboard", "홈", "home"],
   ["chat", "채팅 연구실", "chat"],
+  ["vision", "이미지 연구실", "spark"],
   ["dataset", "데이터 공장", "data"],
   ["games", "AI 게임", "game"],
   ["arena", "모델 경기장", "arena"],
