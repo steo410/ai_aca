@@ -7,6 +7,7 @@ import DatasetLab from "./components/DatasetLab";
 import Games from "./components/Games";
 import Arena from "./components/Arena";
 import TrainingLab from "./components/TrainingLab";
+import ImageLab from "./components/ImageLab";
 import { loadLocalModel, unloadLocalModel } from "./lib/localModel";
 import { getModelMeta, normalizeModelSelection } from "./lib/models";
 import { loadState, saveState } from "./lib/storage";
@@ -94,9 +95,13 @@ export default function App() {
     modelMeta,
     onLoadModel: handleLoadModel,
   };
+
   switch (activePage) {
     case "chat":
       page = <ChatLab {...commonProps} />;
+      break;
+    case "vision":
+      page = <ImageLab {...commonProps} />;
       break;
     case "dataset":
       page = <DatasetLab state={state} setState={setState} />;
