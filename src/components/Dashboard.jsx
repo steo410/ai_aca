@@ -4,7 +4,7 @@ import { datasetQuality } from "../lib/personalization";
 
 export default function Dashboard({ state, modelState, modelMeta, onNavigate, onLoadModel }) {
   const quality = datasetQuality(state.sftExamples);
-  const completedGames = Object.keys(state.game.dungeonScores ?? {}).length;
+  const practiceDone = Object.keys(state.game.dungeonScores ?? {}).length;
   const personalizedWins = state.arenaVotes.filter((vote) => vote.winner === "personalized").length;
   const winRate = state.arenaVotes.length
     ? Math.round((personalizedWins / state.arenaVotes.length) * 100)
@@ -12,7 +12,7 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
 
   const cards = [
     {
-      label: "SFT 예시",
+      label: "SFT 데이터",
       value: state.sftExamples.length,
       unit: "개",
       detail: `완성도 ${quality.completeness}%`,
@@ -22,21 +22,21 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
       label: "선호 데이터",
       value: state.preferences.length,
       unit: "쌍",
-      detail: "chosen / rejected",
+      detail: "좋은 답변 / 아쉬운 답변",
       icon: "arena",
     },
     {
-      label: "경기장 승률",
+      label: "개인화 선택률",
       value: winRate,
       unit: "%",
-      detail: "개인화 모델 기준",
+      detail: "답변 비교 결과",
       icon: "spark",
     },
     {
-      label: "연구 경험치",
+      label: "활동 점수",
       value: state.game.xp,
       unit: "XP",
-      detail: `던전 ${completedGames}/3 완료`,
+      detail: `개념 연습 ${practiceDone}/3`,
       icon: "game",
     },
   ];
@@ -46,24 +46,24 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
       <Card className="hero-card">
         <div className="hero-grid-overlay" />
         <div className="hero-content">
-          <Badge tone="accent">STEP 1–3 통합 실습</Badge>
+          <Badge tone="accent">브라우저에서 실행되는 로컬 AI</Badge>
           <h2>
-            AI를 사용하는 데서 끝나지 않고,
-            <br />직접 가르치고 비교해보세요.
+            Qwen을 직접 실행하고,
+            <br />답변과 학습 데이터를 비교해보세요.
           </h2>
           <p>
-            모든 대화와 학습 데이터는 브라우저 안에 저장됩니다. 저성능·중간·고성능 또는
-            사용자 지정 모델을 선택해 인터넷 서버 없이 채팅과 모델 대결을 진행할 수 있습니다.
+            모델 추론은 현재 기기의 WebGPU를 사용합니다. 채팅, 이미지 질문, 학습 데이터 관리,
+            답변 비교를 한 곳에서 사용할 수 있습니다.
           </p>
           <div className="hero-actions">
             <Button
               icon={modelState.status === "ready" ? "chat" : "cpu"}
               onClick={modelState.status === "ready" ? () => onNavigate("chat") : onLoadModel}
             >
-              {modelState.status === "ready" ? "채팅 실험 시작" : "로컬 모델 준비"}
+              {modelState.status === "ready" ? "채팅 열기" : "Qwen 불러오기"}
             </Button>
             <Button variant="ghost" icon="data" onClick={() => onNavigate("dataset")}>
-              데이터 만들기
+              학습 데이터 보기
             </Button>
           </div>
         </div>
@@ -71,9 +71,9 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
           <div className="orbit orbit-a" />
           <div className="orbit orbit-b" />
           <div className="core-node">{modelMeta.params}</div>
-          <span className="satellite sat-a">TOKEN</span>
-          <span className="satellite sat-b">LoRA</span>
-          <span className="satellite sat-c">RLHF</span>
+          <span className="satellite sat-a">Qwen</span>
+          <span className="satellite sat-b">WebGPU</span>
+          <span className="satellite sat-c">LoRA</span>
         </div>
       </Card>
 
@@ -99,34 +99,34 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
         <Card>
           <div className="section-heading">
             <div>
-              <span className="eyebrow">LEARNING PATH</span>
-              <h3>3단계 연구 과정</h3>
+              <span className="eyebrow">QUICK START</span>
+              <h3>바로 시작하기</h3>
             </div>
             <Badge tone={modelState.status === "ready" ? "success" : "neutral"}>
-              {modelState.status === "ready" ? "모델 연결됨" : "모델 미연결"}
+              {modelState.status === "ready" ? "Qwen 준비됨" : "모델 미로드"}
             </Badge>
           </div>
           <div className="learning-path">
             <PathItem
               number="01"
-              title="로컬 AI 이해"
-              description="프롬프트, 온도, Top-p를 바꾸며 결과 차이를 관찰합니다."
-              progress={modelState.status === "ready" ? 100 : 25}
+              title="Qwen과 대화하기"
+              description="모델 크기와 생성 설정을 바꿔가며 응답 차이를 확인합니다."
+              progress={modelState.status === "ready" ? 100 : 20}
               onClick={() => onNavigate("chat")}
             />
             <PathItem
               number="02"
-              title="게임으로 개념 학습"
-              description="토큰 예측, 환각 탐정, 프롬프트 던전을 해결합니다."
-              progress={Math.round((completedGames / 3) * 100)}
-              onClick={() => onNavigate("games")}
+              title="학습 데이터 만들기"
+              description="직접 만든 질문·답변과 선호 쌍을 저장하고 내보낼 수 있습니다."
+              progress={Math.min(100, state.sftExamples.length * 10 + state.preferences.length * 5)}
+              onClick={() => onNavigate("dataset")}
             />
             <PathItem
               number="03"
-              title="데이터와 LoRA"
-              description="학습 예시를 만들고 기본 모델과 개인화 모델을 평가합니다."
-              progress={Math.min(100, state.sftExamples.length * 10 + state.preferences.length * 5)}
-              onClick={() => onNavigate("training")}
+              title="답변 비교하기"
+              description="기본 응답과 개인화 응답을 나란히 보고 더 나은 쪽을 선택합니다."
+              progress={Math.min(100, state.arenaVotes.length * 10)}
+              onClick={() => onNavigate("arena")}
             />
           </div>
         </Card>
@@ -134,18 +134,18 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
         <Card>
           <div className="section-heading">
             <div>
-              <span className="eyebrow">DATA HEALTH</span>
-              <h3>학습 데이터 품질</h3>
+              <span className="eyebrow">DATA</span>
+              <h3>학습 데이터 상태</h3>
             </div>
             <div className="score-ring" style={{ "--score": `${quality.score * 3.6}deg` }}>
               <span>{quality.score}</span>
             </div>
           </div>
           <div className="quality-list">
-            <QualityRow label="형식 완성도" value={quality.completeness} />
-            <QualityRow label="답변 길이 균형" value={Math.min(100, Math.round((quality.avgOutput / 120) * 100))} />
+            <QualityRow label="필수 항목 채움" value={quality.completeness} />
+            <QualityRow label="답변 길이" value={Math.min(100, Math.round((quality.avgOutput / 120) * 100))} />
             <QualityRow
-              label="중복 질문 방지"
+              label="질문 중복"
               value={state.sftExamples.length ? Math.round((1 - quality.duplicates / state.sftExamples.length) * 100) : 0}
             />
           </div>
@@ -155,7 +155,7 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
             <div><span>중복</span><strong>{quality.duplicates}개</strong></div>
           </div>
           <Button variant="secondary" className="full" onClick={() => onNavigate("dataset")}>
-            데이터 품질 개선하기
+            데이터 관리
           </Button>
         </Card>
       </div>
