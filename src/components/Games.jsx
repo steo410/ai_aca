@@ -11,8 +11,7 @@ export default function Games({ state, setState }) {
   const [dungeonFeedback, setDungeonFeedback] = useState(null);
 
   const tokenMission = tokenMissions[state.game.tokenIndex % tokenMissions.length];
-  const hallucinationMission =
-    hallucinationMissions[state.game.hallucinationIndex % hallucinationMissions.length];
+  const hallucinationMission = hallucinationMissions[state.game.hallucinationIndex % hallucinationMissions.length];
   const dungeon = dungeonMissions.find((item) => item.id === selectedDungeon);
 
   function answerToken(option) {
@@ -29,10 +28,7 @@ export default function Games({ state, setState }) {
     setTokenResult(null);
     setState((previous) => ({
       ...previous,
-      game: {
-        ...previous.game,
-        tokenIndex: (previous.game.tokenIndex + 1) % tokenMissions.length,
-      },
+      game: { ...previous.game, tokenIndex: (previous.game.tokenIndex + 1) % tokenMissions.length },
     }));
   }
 
@@ -52,17 +48,14 @@ export default function Games({ state, setState }) {
       ...previous,
       game: {
         ...previous.game,
-        hallucinationIndex:
-          (previous.game.hallucinationIndex + 1) % hallucinationMissions.length,
+        hallucinationIndex: (previous.game.hallucinationIndex + 1) % hallucinationMissions.length,
       },
     }));
   }
 
   function gradeDungeon() {
     const normalized = dungeonPrompt.toLowerCase();
-    const matched = dungeon.keywords.filter((keyword) =>
-      normalized.includes(keyword.toLowerCase()),
-    );
+    const matched = dungeon.keywords.filter((keyword) => normalized.includes(keyword.toLowerCase()));
     const structureBonus = /역할|너는|당신은/.test(normalized) ? 10 : 0;
     const formatBonus = /형식|출력|작성/.test(normalized) ? 10 : 0;
     const base = Math.round((matched.length / dungeon.keywords.length) * 80);
@@ -90,34 +83,34 @@ export default function Games({ state, setState }) {
     <div className="page games-page">
       <div className="game-summary">
         <Card>
-          <span>현재 경험치</span>
+          <span>활동 점수</span>
           <strong>{state.game.xp.toLocaleString()} XP</strong>
-          <Progress value={state.game.xp % 100} label={`다음 레벨까지 ${100 - (state.game.xp % 100)} XP`} />
+          <Progress value={state.game.xp % 100} label={`다음 100점까지 ${100 - (state.game.xp % 100)} XP`} />
         </Card>
         <Card>
-          <span>프롬프트 던전</span>
+          <span>프롬프트 연습</span>
           <strong>{Object.keys(state.game.dungeonScores ?? {}).length}/3 완료</strong>
-          <p>각 던전에서 70점 이상을 달성해보세요.</p>
+          <p>세 가지 유형의 프롬프트를 직접 작성해볼 수 있습니다.</p>
         </Card>
         <Card>
-          <span>학습 핵심</span>
-          <strong>예측 · 검증 · 지시</strong>
-          <p>언어 모델을 안전하고 정확하게 사용하는 세 가지 습관입니다.</p>
+          <span>연습 항목</span>
+          <strong>토큰 · 사실 확인 · 프롬프트</strong>
+          <p>언어 모델을 사용할 때 자주 접하는 기본 개념입니다.</p>
         </Card>
       </div>
 
       <Card className="game-center-card">
         <div className="tabs game-tabs">
-          <button className={tab === "token" ? "active" : ""} onClick={() => setTab("token")}>다음 토큰 연구소</button>
-          <button className={tab === "hallucination" ? "active" : ""} onClick={() => setTab("hallucination")}>환각 탐정</button>
-          <button className={tab === "dungeon" ? "active" : ""} onClick={() => setTab("dungeon")}>프롬프트 던전</button>
+          <button className={tab === "token" ? "active" : ""} onClick={() => setTab("token")}>다음 토큰</button>
+          <button className={tab === "hallucination" ? "active" : ""} onClick={() => setTab("hallucination")}>사실 확인</button>
+          <button className={tab === "dungeon" ? "active" : ""} onClick={() => setTab("dungeon")}>프롬프트 작성</button>
         </div>
 
         {tab === "token" ? (
           <div className="game-stage token-stage">
             <div className="game-stage-header">
-              <Badge tone="accent">MISSION {state.game.tokenIndex + 1}</Badge>
-              <span>언어 모델의 다음 토큰 예측을 단순화한 문제입니다.</span>
+              <Badge tone="accent">문제 {state.game.tokenIndex + 1}</Badge>
+              <span>문장의 다음에 올 가능성이 높은 토큰을 골라보세요.</span>
             </div>
             <div className="token-sentence">{tokenMission.sentence}</div>
             <div className="option-grid">
@@ -127,24 +120,20 @@ export default function Games({ state, setState }) {
                   if (option === tokenMission.answer) className += " correct";
                   else if (option === tokenResult.option) className += " wrong";
                 }
-                return (
-                  <button key={option} className={className} onClick={() => answerToken(option)}>
-                    {option}
-                  </button>
-                );
+                return <button key={option} className={className} onClick={() => answerToken(option)}>{option}</button>;
               })}
             </div>
             {tokenResult ? (
               <div className={`game-feedback ${tokenResult.correct ? "success" : "failure"}`}>
-                <strong>{tokenResult.correct ? "정답입니다! +20 XP" : `정답은 ‘${tokenMission.answer}’입니다.`}</strong>
+                <strong>{tokenResult.correct ? "정답입니다." : `정답은 ‘${tokenMission.answer}’입니다.`}</strong>
                 <p>{tokenMission.explanation}</p>
                 <Button onClick={nextToken}>다음 문제</Button>
               </div>
             ) : (
               <div className="concept-strip">
-                <div><span>낮은 온도</span><strong>높은 확률 후보 집중</strong></div>
+                <div><span>낮은 Temperature</span><strong>높은 확률의 후보에 집중</strong></div>
                 <div className="concept-arrow">→</div>
-                <div><span>높은 온도</span><strong>후보 확률이 평탄해짐</strong></div>
+                <div><span>높은 Temperature</span><strong>더 다양한 후보를 선택</strong></div>
               </div>
             )}
           </div>
@@ -154,22 +143,18 @@ export default function Games({ state, setState }) {
           <div className="game-stage hallucination-stage">
             <div className="game-stage-header">
               <Badge tone="warning">FACT CHECK</Badge>
-              <span>아래 주장이 AI에 관한 사실인지 판단하세요.</span>
+              <span>아래 내용이 사실인지 판단해보세요.</span>
             </div>
             <blockquote>{hallucinationMission.claim}</blockquote>
             <div className="truth-buttons">
-              <button className={hallucinationResult?.answer === true ? "selected" : ""} onClick={() => answerHallucination(true)}>
-                <span>O</span><strong>사실이다</strong>
-              </button>
-              <button className={hallucinationResult?.answer === false ? "selected" : ""} onClick={() => answerHallucination(false)}>
-                <span>X</span><strong>사실이 아니다</strong>
-              </button>
+              <button className={hallucinationResult?.answer === true ? "selected" : ""} onClick={() => answerHallucination(true)}><span>O</span><strong>사실이다</strong></button>
+              <button className={hallucinationResult?.answer === false ? "selected" : ""} onClick={() => answerHallucination(false)}><span>X</span><strong>사실이 아니다</strong></button>
             </div>
             {hallucinationResult ? (
               <div className={`game-feedback ${hallucinationResult.correct ? "success" : "failure"}`}>
-                <strong>{hallucinationResult.correct ? "판단이 정확합니다! +20 XP" : "다시 검증해볼 필요가 있습니다."}</strong>
+                <strong>{hallucinationResult.correct ? "맞았습니다." : "정답과 다릅니다."}</strong>
                 <p>{hallucinationMission.explanation}</p>
-                <Button onClick={nextHallucination}>다음 주장</Button>
+                <Button onClick={nextHallucination}>다음 내용</Button>
               </div>
             ) : null}
           </div>
@@ -181,15 +166,7 @@ export default function Games({ state, setState }) {
               {dungeonMissions.map((mission) => {
                 const score = state.game.dungeonScores?.[mission.id] ?? 0;
                 return (
-                  <button
-                    key={mission.id}
-                    className={selectedDungeon === mission.id ? "active" : ""}
-                    onClick={() => {
-                      setSelectedDungeon(mission.id);
-                      setDungeonPrompt("");
-                      setDungeonFeedback(null);
-                    }}
-                  >
+                  <button key={mission.id} className={selectedDungeon === mission.id ? "active" : ""} onClick={() => { setSelectedDungeon(mission.id); setDungeonPrompt(""); setDungeonFeedback(null); }}>
                     <span>{score >= 70 ? "✓" : "◇"}</span>
                     <div><strong>{mission.title}</strong><small>최고 {score}점</small></div>
                   </button>
@@ -197,30 +174,25 @@ export default function Games({ state, setState }) {
               })}
             </aside>
             <div className="dungeon-stage">
-              <Badge tone="accent">PROMPT QUEST</Badge>
+              <Badge tone="accent">PROMPT</Badge>
               <h3>{dungeon.title}</h3>
               <p className="dungeon-story">{dungeon.story}</p>
-              <div className="mission-goal"><span>성공 조건</span><strong>{dungeon.goal}</strong></div>
+              <div className="mission-goal"><span>포함할 내용</span><strong>{dungeon.goal}</strong></div>
               <label className="field">
-                <span>AI에게 보낼 프롬프트</span>
-                <textarea
-                  rows={10}
-                  value={dungeonPrompt}
-                  onChange={(event) => setDungeonPrompt(event.target.value)}
-                  placeholder="역할, 수행할 작업, 출력 형식, 제한 조건을 포함해 작성하세요."
-                />
+                <span>프롬프트</span>
+                <textarea rows={10} value={dungeonPrompt} onChange={(event) => setDungeonPrompt(event.target.value)} placeholder="역할, 작업 내용, 출력 형식, 제한 조건 등을 포함해 작성하세요." />
               </label>
               <div className="dungeon-actions">
-                <p>힌트: {dungeon.hint}</p>
-                <Button onClick={gradeDungeon} disabled={!dungeonPrompt.trim()}>프롬프트 분석</Button>
+                <p>참고: {dungeon.hint}</p>
+                <Button onClick={gradeDungeon} disabled={!dungeonPrompt.trim()}>확인하기</Button>
               </div>
               {dungeonFeedback ? (
                 <div className={`dungeon-score ${dungeonFeedback.score >= 70 ? "passed" : ""}`}>
                   <div className="score-ring" style={{ "--score": `${dungeonFeedback.score * 3.6}deg` }}><span>{dungeonFeedback.score}</span></div>
                   <div>
-                    <strong>{dungeonFeedback.score >= 70 ? "던전 통과!" : "조건을 더 구체화하세요."}</strong>
-                    <p>포함한 핵심 요소: {dungeonFeedback.matched.join(", ") || "없음"}</p>
-                    {dungeonFeedback.missing.length ? <p>추가하면 좋은 요소: {dungeonFeedback.missing.join(", ")}</p> : null}
+                    <strong>{dungeonFeedback.score >= 70 ? "필요한 요소가 충분히 포함되었습니다." : "몇 가지 요소를 더 넣어보세요."}</strong>
+                    <p>포함된 요소: {dungeonFeedback.matched.join(", ") || "없음"}</p>
+                    {dungeonFeedback.missing.length ? <p>추가할 수 있는 요소: {dungeonFeedback.missing.join(", ")}</p> : null}
                   </div>
                 </div>
               ) : null}
