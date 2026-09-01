@@ -16,7 +16,6 @@ export default function Sidebar({ activePage, onChange, modelState, modelMeta, x
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-mark">LA</div>
         <div><strong>Local AI</strong><span>TOOLS</span></div>
       </div>
       <nav className="nav-list">
