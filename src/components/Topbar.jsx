@@ -4,7 +4,7 @@ import ModelManager from "./ModelManager";
 import { isWebGpuAvailable } from "../lib/localModel";
 
 const pageTitles = {
-  dashboard: ["Local AI", "브라우저에서 Qwen을 실행하고, 데이터를 만들고, 결과를 비교할 수 있습니다."],
+  dashboard: ["Local AI", ""],
   chat: ["채팅", "선택한 Qwen 모델로 대화합니다. 최신 정보가 필요한 질문은 자동으로 웹 검색을 사용합니다."],
   vision: ["이미지 질문", "이미지를 올리고 내용, 장면, 그래프 등에 대해 질문할 수 있습니다."],
   dataset: ["학습 데이터", "SFT 예시와 선호 데이터를 직접 만들고 관리합니다."],
@@ -27,7 +27,7 @@ export default function Topbar({ activePage, modelState, modelSelection, modelMe
   return (
     <>
       <header className="topbar">
-        <div><div className="eyebrow">LOCAL AI</div><h1>{title}</h1><p>{subtitle}</p></div>
+        <div><div className="eyebrow">LOCAL AI</div><h1>{title}</h1>{subtitle ? <p>{subtitle}</p> : null}</div>
         <div className="topbar-actions">
           <Badge tone={webGpu ? "success" : "danger"}>{webGpu ? "WebGPU 사용 가능" : "WebGPU 미지원"}</Badge>
           {visionPage ? (

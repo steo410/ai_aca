@@ -51,10 +51,6 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
             Qwen을 직접 실행하고,
             <br />답변과 학습 데이터를 비교해보세요.
           </h2>
-          <p>
-            모델 추론은 현재 기기의 WebGPU를 사용합니다. 채팅, 이미지 질문, 학습 데이터 관리,
-            답변 비교를 한 곳에서 사용할 수 있습니다.
-          </p>
           <div className="hero-actions">
             <Button
               icon={modelState.status === "ready" ? "chat" : "cpu"}
@@ -103,7 +99,7 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
               <h3>바로 시작하기</h3>
             </div>
             <Badge tone={modelState.status === "ready" ? "success" : "neutral"}>
-              {modelState.status === "ready" ? "Qwen 준비됨" : "모델 미로드"}
+              {modelState.status === "ready" ? "모델 준비됨" : "모델 미로드"}
             </Badge>
           </div>
           <div className="learning-path">
@@ -124,8 +120,8 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
             <PathItem
               number="03"
               title="답변 비교하기"
-              description="기본 응답과 개인화 응답을 나란히 보고 더 나은 쪽을 선택합니다."
-              progress={Math.min(100, state.arenaVotes.length * 10)}
+              description="기본 응답과 개인화 응답을 같은 질문으로 비교합니다."
+              progress={state.arenaVotes.length ? Math.min(100, state.arenaVotes.length * 10) : 0}
               onClick={() => onNavigate("arena")}
             />
           </div>
@@ -155,7 +151,7 @@ export default function Dashboard({ state, modelState, modelMeta, onNavigate, on
             <div><span>중복</span><strong>{quality.duplicates}개</strong></div>
           </div>
           <Button variant="secondary" className="full" onClick={() => onNavigate("dataset")}>
-            데이터 관리
+            학습 데이터 열기
           </Button>
         </Card>
       </div>
